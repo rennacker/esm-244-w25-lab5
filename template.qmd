@@ -1,7 +1,17 @@
 ---
 title: 'ESM 244 Lab 5 Key: Clustering'
+author:
+  -Travis Rennacker
+  -NGGrimes
+format: 
+  html: 
+    code-fold: show
+    embed-resource: true
+    toc: true
 execute:
-  eval: false
+  eval: true
+  warning: false 
+  message: false
 ---
 
 
@@ -57,7 +67,9 @@ All of these parameters were real-valued continuous.
 This data is in a different format than we are used to.  It is a text file, rather than csv; the columns are separated by tabs, not commas. R can handle this no problem with a new function to load in the data.
 
 ```{r}
-seeds_df <- read_tsv(here::here('data','seeds_dataset.txt'))
+seeds_df_raw <- read_tsv(here::here('data','seeds_dataset.txt'))
+
+seeds_df <- seeds_df_raw
 
 ```
 
@@ -90,6 +102,18 @@ seeds_df <- read_tsv(here::here('data','seeds_dataset.txt'),
                              TRUE ~ 'oops'))
 ```
 
+```{r}
+temp <- read_tsv(here::here('data','seeds_dataset.txt'),
+                     col_names = FALSE,
+                     na = '-999') %>%
+  setNames(var_names) %>%
+  mutate(variety = case_when(variety == 1 ~ 'Kama',
+                             variety == 2 ~ 'Rosa',
+                             variety == 3 ~ 'Canadian',
+                             TRUE ~ 'oops'))
+```
+
+
 
 
 ## Exploratory visualization
@@ -105,7 +129,23 @@ I want you to create three exploratory visuals to help you understand the data a
 You can always make more if you want. 
 
 
+```{r}
+seeds_long <- seeds_df %>%
+  pivot_longer(cols = -variety)
 
+ggplot(seeds_long, aes(x = value)) +
+  geom_histogram() +
+  facet_grid(variety ~ name, scales = 'free')
+```
+
+
+```{r}
+ggplot(temp,aes(x=a, y=asym)) + geom_point(aes(color = variety))
+```
+
+```{r}
+ggplot(seeds_df,aes(x=l_k, y=w_k)) + geom_point(aes(color=variety))
+```
 
 
 
@@ -118,6 +158,11 @@ Make two separate dataframes where one is the complete cases dataframe and the o
 
 Why would we want two separate dataframes instead of doing it one pipe? Why should we scale the data before going to kmeans-clustering?
 
+```{r}
+seeds_complete <- seeds_df |> drop_na()
+
+seeds_scale <- seeds_complete |> select(-variety) |> scale(scale=TRUE)
+```
 
 
 
@@ -126,6 +171,7 @@ Why would we want two separate dataframes instead of doing it one pipe? Why shou
 First let's make a 'knee' plot to see the performance of kmeans with different number of clusters. Describe what each of the arguments do in the following code chunk. Interpret the results of the graph by making a figure caption in the code chunk.
 
 ```{r}
+#| fig-cap: we Would select K means cluster based on kink at 3-4 but I choose 4-5 as being of importance because clearly importance
 
 fviz_nbclust(seeds_scale, FUNcluster = kmeans, method = 'wss', k.max = 10)
 
@@ -157,11 +203,18 @@ The `nbclust` package runs k-means under the hood, but doesn't provide a usuable
 ```{r}
 
 set.seed(10101)
-seeds_km <- kmeans(xxx,yyy,zzz) # kmeans specifying 3 groups to start
+seeds_km <- kmeans(seeds_scale, centers = 3, nstart = 50) # kmeans specifying 3 groups to start
+
+seeds_km
+
 ```
 
 
 Examine the output of the kmeans object. Which column contains the classfiication? Join the cluster labels to the ***non***-scaled data.
+
+```{r}
+seeds_cl <- data.frame(seeds_complete, cluster_no=factor(seeds_km$cluster))
+```
 
 
 
@@ -171,6 +224,7 @@ Now make a ggplot of of area on the x-axis, asymmetric coefficient on the y-axis
 ### On your own:
 ### Plot area and asymmetric index, and include cluster number and variety for comparison:
 
+ggplot(seeds_cl,aes(x=a, y=asym)) + geom_point(aes(color=cluster_no, shape=variety, alpha=l_g))
 
 
 ```
@@ -180,6 +234,12 @@ What do we see from this graph?
 
 Can you make a table to show the comparison between the variety and defined clusters?
 
+```{r}
+#| tabl-cap: contiency table for the grouping of kmeans and carietals of kernels
+
+seeds_cl |> 
+  select(variety, cluster_no) |> table() |> knitr::kable()
+```
 
 
 # Part 2. Cluster analysis: hierarchical
@@ -203,7 +263,24 @@ wb_env <- read_csv(here::here("data","wb_env.csv"))
 
 
 
-Write pseducode for what we will need to do for heirarchal clustering
+Write pseducode for what we will need to do for hierarchical clustering
+
+1. Slice the top 20 emitters
+
+2. drop.na
+
+3. select only numeric
+
+4. scale data
+
+5. distance <- get it
+
+6. run hclust
+
+7. linkages either single or complete 
+
+8. make our dendgrograms
+
 
 
 
@@ -211,10 +288,10 @@ Write pseducode for what we will need to do for heirarchal clustering
 ## Wrangle the data
 
 ```{r}
-#| eval: false
 
 # Only keep top 20 greenhouse gas emitters (for simplifying visualization here...)
 wb_ghg_20 <- wb_env %>% 
+  slice_max(ghg, n=20)
   
 
 ```
@@ -224,6 +301,9 @@ wb_ghg_20 <- wb_env %>%
 ```{r}
 # Scale the numeric variables (columns 3:7)
 wb_scaled <- wb_ghg_20 %>% 
+  select(3:7)             |>      #hard code, issue if you change your data frame
+#select(-c(name, region)) 
+scale()
 
 
 rownames(wb_scaled) <- wb_ghg_20$name
@@ -236,7 +316,7 @@ rownames(wb_scaled) <- wb_ghg_20$name
 Use the `stats::dist()` function to find the Euclidean distance in multivariate space between the different observations (countries):
 
 ```{r}
-
+euc_distance <- dist(wb_scaled, method = "euclidean")
 ```
 
 
@@ -267,6 +347,17 @@ Let's update the linkage to single linkage (recall from lecture: this means that
 ```{r}
 
 # Make single cluster here and plot it
+ 
+
+# Hierarchical clustering (complete linkage)
+hc_single <- hclust(euc_distance, method = "single" )
+
+# Plot it
+p_single<-ggdendrogram(hc_single, 
+             rotate = TRUE) +
+  theme_minimal() +
+  labs(x = "Country")
+
 
 ```
 
@@ -275,6 +366,11 @@ Let's update the linkage to single linkage (recall from lecture: this means that
 Use patchwork to compare the two outputs and add a descriptive figure caption to the joined plot.
 
 ```{r}
+library(patchwork)
+
+pa_dend <- (p_single+p_complete)
+
+pa_dend
 
 ```
 
